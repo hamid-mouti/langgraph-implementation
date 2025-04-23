@@ -1,6 +1,6 @@
 from dotenv import load_dotenv
 from langgraph.checkpoint.memory import MemorySaver
-from langgraph.checkpoint.sqlite import SqliteSaver
+#from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, StateGraph
 
 from graph.chains.answer_grader import answer_grader
@@ -9,9 +9,10 @@ from graph.chains.router import question_router, RouteQuery
 from graph.consts import GENERATE, GRADE_DOCUMENTS, RETRIEVE, WEBSEARCH
 from graph.nodes import generate, grade_documents, retrieve, web_search
 from graph.state import GraphState
+from langchain_core.runnables.graph import CurveStyle, MermaidDrawMethod, NodeStyles
 
-load_dotenv()
-memory = SqliteSaver.from_conn_string(":memory:")
+load_dotenv(override=True)
+#memory = SqliteSaver.from_conn_string(":memory:")
 memory = MemorySaver()
 
 
@@ -37,6 +38,9 @@ def grade_generation_grounded_in_documents_and_question(state: GraphState) -> st
     score = hallucination_grader.invoke(
         {"documents": documents, "generation": generation}
     )
+    for i, d in enumerate(documents):
+        print(f"Document {i}:\n\n {d}\n\n")
+    print("Number of documents: ", len(documents))
 
     if hallucination_grade := score.binary_score:
         print("---DECISION: GENERATION IS GROUNDED IN DOCUMENTS---")
@@ -49,6 +53,10 @@ def grade_generation_grounded_in_documents_and_question(state: GraphState) -> st
             print("---DECISION: GENERATION DOES NOT ADDRESS QUESTION---")
             return "not useful"
     else:
+        state["loop_counter"] += 1
+        if state["loop_counter"] >= 5:
+            print("---DECISION: TOO MANY UNSUPPORTED GENERATIONS, SWITCH TO WEBSEARCH---")
+            return WEBSEARCH
         print("---DECISION: GENERATION IS NOT GROUNDED IN DOCUMENTS, RE-TRY---")
         return "not supported"
 
@@ -63,6 +71,9 @@ def route_question(state: GraphState) -> str:
     elif source.datasource == "vectorstore":
         print("---ROUTE QUESTION TO RAG---")
         return RETRIEVE
+    elif source.datasource == GENERATE:
+        print("---ROUTE QUESTION TO GENERATE---")
+        return GENERATE
 
 
 workflow = StateGraph(GraphState)
@@ -77,6 +88,7 @@ workflow.set_conditional_entry_point(
     {
         WEBSEARCH: WEBSEARCH,
         RETRIEVE: RETRIEVE,
+        GENERATE: GENERATE,
     },
 )
 workflow.add_edge(RETRIEVE, GRADE_DOCUMENTS)
@@ -102,4 +114,4 @@ workflow.add_conditional_edges(
 
 app = workflow.compile(checkpointer=memory)
 
-# app.get_graph().draw_mermaid_png(output_file_path="graph.png")
+# app.get_graph().draw_mermaid_png(output_file_path="graph.png", draw_method=MermaidDrawMethod.PYPPETEER)

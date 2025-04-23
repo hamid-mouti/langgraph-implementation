@@ -3,7 +3,7 @@ from pprint import pprint
 from dotenv import load_dotenv
 
 
-load_dotenv()
+load_dotenv(override=True)
 
 from graph.chains.generation import generation_chain
 from graph.chains.hallucination_grader import GradeHallucinations, hallucination_grader
